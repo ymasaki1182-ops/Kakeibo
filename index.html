@@ -90,8 +90,8 @@
     .calc-btn.done { background:var(--emerald); color:var(--white); grid-column:span 2; font-size:16px; }
 
     /* Buttons */
-    .btn-row { display:flex; gap:8px; }
-    .method-btn { flex:1; height:46px; border:1.5px solid var(--gray-200); border-radius:var(--radius-sm); background:var(--white); font-size:13px; font-weight:700; color:var(--gray-500); cursor:pointer; transition:var(--transition); -webkit-tap-highlight-color:transparent; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0 4px; font-family:var(--font); }
+    .btn-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .method-btn { height: 46px; border: 1.5px solid var(--gray-200); border-radius: var(--radius-sm); background: var(--white); font-size: 13px; font-weight: 700; color: var(--gray-500); cursor: pointer; transition: var(--transition); -webkit-tap-highlight-color: transparent; padding: 0 4px; font-family: var(--font); }
     .method-btn:active { transform:scale(0.94); }
     .method-btn.active { border-color:var(--indigo); background:var(--indigo-light); color:var(--indigo-dark); }
     .segment-tab { display:flex; background:var(--gray-100); border-radius:var(--radius-sm); padding:4px; margin-bottom:4px; }
