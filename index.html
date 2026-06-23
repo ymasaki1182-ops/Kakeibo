@@ -1749,7 +1749,7 @@ function renderSettings(){
 }
 
 // ═══════════════════════════════════════════════
-// 【機能拡張】並び替え ＆ 貯金目標額の設定機能（オーバーライド）
+// 【機能拡張】並び替え ＆ 貯金目標額の設定 ＆ 資産画面からローンを完全除外（最新版）
 // ═══════════════════════════════════════════════
 
 // 1. 設定画面（目標額設定の追加 ＆ 並び替え対応）
@@ -1764,7 +1764,7 @@ function renderSettings(){
     vb.appendChild(row);
   });
 
-  // ★【新規追加】貯金目標額の設定カードを動的に生成して配置
+  // 貯金目標額の設定カード
   let goalBox = document.getElementById("card-saving-goal-box");
   if(!goalBox) {
     goalBox = document.createElement("div");
@@ -1778,7 +1778,7 @@ function renderSettings(){
       scrSettings.appendChild(goalBox);
     }
   }
-  const currentGoal = LS.get("savingGoal", 1000000); // 初期値は100万円
+  const currentGoal = LS.get("savingGoal", 1000000);
   goalBox.innerHTML = `
     <h2 class="section-title">貯金目標額の設定</h2>
     <div style="margin-top: 12px;">
@@ -1860,18 +1860,25 @@ function renderSettings(){
   });
 }
 
-// 2. 資産画面（動的目標に対応 ＆ 並び替え対応）
+// 2. 資産画面（ローンを総資産・総負債の計算から完全に除外）
 function renderAssetsScreen(){
+  // 純粋な資産（口座残高）の合計のみを計算
   const totalAsset=assetAccounts.reduce((s,a)=>s+a.balance,0);
-  const totalLoan=loans.reduce((s,l)=>s+l.remaining,0);
-  const net=totalAsset-totalLoan;
+  const net=totalAsset; 
+  
   const nwEl=document.getElementById("txt-asset-networth");
   nwEl.textContent=`¥${net.toLocaleString("ja-JP")}`;
   nwEl.className="big-number"+(net<0?" negative":net>0?" positive":"");
-  document.getElementById("txt-asset-total").textContent=`¥${totalAsset.toLocaleString("ja-JP")}`;
-  document.getElementById("txt-asset-debt").textContent=`¥${totalLoan.toLocaleString("ja-JP")}`;
   
-  // ★【修正】固定定数の代わりに、LocalStorageからユーザーが設定した目標金額を取得
+  // ★【文字の書き換え】「総資産 － 総負債」の固定ラベルを「総資産」に自動変更します
+  if (nwEl.nextElementSibling && nwEl.nextElementSibling.textContent.includes("総資産 − 総負債")) {
+    nwEl.nextElementSibling.textContent = "総資産";
+  }
+  
+  document.getElementById("txt-asset-total").textContent=`¥${totalAsset.toLocaleString("ja-JP")}`;
+  document.getElementById("txt-asset-debt").textContent=`¥0`; // ★総負債の表示を常に0円に固定します
+  
+  // 目標達成率の計算
   const bankTotal=assetAccounts.filter(a=>a.type==="bank"||a.type==="savings").reduce((s,a)=>s+a.balance,0);
   const savingGoal = Number(LS.get("savingGoal", 1000000));
   const sp = savingGoal > 0 ? Math.min((bankTotal / savingGoal) * 100, 100) : 0;
