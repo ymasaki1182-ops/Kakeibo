@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>マイ家計簿 Pro</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -415,7 +415,11 @@
 
       <!-- 予算タブ -->
       <section id="scr-budget" class="screen">
-        <div class="card"><h2 class="section-title">今月の予算管理</h2></div>
+        <div class="card-month-nav">
+          <button class="card-nav-btn" id="budget-prev-month">◀ 前月</button>
+          <span class="card-month-nav-title" id="budget-month-title">----年--月</span>
+          <button class="card-nav-btn" id="budget-next-month">次月 ▶</button>
+        </div>
         <div id="list-budget-progress-cards" style="display:flex; flex-direction:column; gap:12px;"></div>
       </section>
 
@@ -633,7 +637,7 @@ const DEFAULT_ASSET_ACCOUNTS = [
   {id:"points_main", name:"ポイント残高",  type:"points", icon:"⭐", balance:0}
 ];
 const DEFAULT_LOANS = [];
-const DEFAULT_TAB_VISIBILITY = {input:true,history:true,analysis:true,budget:true,assets:true,card:true,loans:true,settings:true};
+const DEFAULT_TAB_VISIBILITY = {input:true,history:true,analysis:true,budget:false,assets:true,card:false,loans:false,settings:true};
 const TAB_CONFIG = [
   {id:"input",    icon:"✏️",  label:"入力"},
   {id:"history",  icon:"📋",  label:"履歴"},
@@ -667,7 +671,19 @@ const LOAN_TYPES = [
 // ═══════════════════════════════════════════════
 const LS = {
   get:(k,d)=>{ try{let v=localStorage.getItem(k); return v?JSON.parse(v):d;}catch{return d;} },
-  set:(k,v)=>{ try{localStorage.setItem(k,JSON.stringify(v));}catch{} }
+  set:(k,v)=>{
+    try{
+      localStorage.setItem(k,JSON.stringify(v));
+      try{
+        const used=new Blob(Object.values(localStorage)).size;
+        if(used>4500000){ showSnackbar("⚠️ ストレージ残量が少なくなっています。バックアップを推奨します",4000); }
+      }catch{}
+    }catch(e){
+      if(e&&e.name==="QuotaExceededError"){
+        appAlert("保存容量超過","ストレージが満杯です。バックアップして古いデータを削除してください");
+      }
+    }
+  }
 };
 
 // ═══════════════════════════════════════════════
@@ -866,10 +882,10 @@ function initInputScreenContext(){
       const amt = inputCalculatedAmount;
       const prevRemaining = loan.remaining;
       loan.remaining = Math.max(0, loan.remaining - amt);
-      // 返済履歴に追記
+      const repHistId=`rep_${Date.now()}`;
       if(!loan.repayHistory) loan.repayHistory = [];
       loan.repayHistory.push({
-        id: `rep_${Date.now()}`,
+        id: repHistId,
         date: inputSelectedDate,
         amount: amt,
         memo: document.getElementById("in-memo").value.trim() || "",
@@ -881,10 +897,11 @@ function initInputScreenContext(){
         id:`exp_${Date.now()}`, date:inputSelectedDate,
         memo: (document.getElementById("in-memo").value.trim()||"") || `${loan.name} 返済`,
         method:"cash", amount:amt, catId:"repay", type:"repay",
-        loanId:loan.id, loanName:loan.name
+        loanId:loan.id, loanName:loan.name,
+        repayHistoryId: repHistId
       });
       LS.set("expenses", expenses);
-      appAlert("返済記録完了", `¥${amt.toLocaleString("ja-JP")} を「${loan.name}」に充当しました。\n残高: ¥${loan.remaining.toLocaleString("ja-JP")}`);
+      showSnackbar(`💳 ¥${amt.toLocaleString("ja-JP")} を「${loan.name}」に充当しました。残高: ¥${loan.remaining.toLocaleString("ja-JP")}`);
       document.getElementById("in-memo").value=""; inputCalculatedAmount=0;
       document.getElementById("btn-trigger-calc").textContent="0";
       inputSelectedLoanId=""; renderInputScreen();
@@ -922,7 +939,7 @@ function initInputScreenContext(){
     }
 
     const flowName = inputFlowType==="income"?"収入":"支出";
-    appAlert("記録完了",`¥${inputCalculatedAmount.toLocaleString("ja-JP")} の${flowName}を登録しました！`);
+    showSnackbar(`✅ ¥${inputCalculatedAmount.toLocaleString("ja-JP")} の${flowName}を記録しました`);
     document.getElementById("in-memo").value=""; inputCalculatedAmount=0;
     document.getElementById("btn-trigger-calc").textContent="0";
     if(inputFlowType==="expense") inputSelectedCatId="";
@@ -1009,8 +1026,13 @@ function buildCustomCalendar(year, month, titleId, gridId, onSelect, currentSele
         const eSum=dayTx.filter(e=>e.type!=="income"&&e.type!=="repay").reduce((s,e)=>s+e.amount,0);
         const iSum=dayTx.filter(e=>e.type==="income").reduce((s,e)=>s+e.amount,0);
         const al=document.createElement("span"); al.className="cal-day-amt";
-        if(eSum>0){ al.textContent=`-${Math.floor(eSum/1000)}k`; al.classList.add("has-amt"); }
-        else if(iSum>0){ al.textContent=`+${Math.floor(iSum/1000)}k`; al.classList.add("has-income"); }
+        if(eSum>0){
+          al.textContent=eSum>=1000?`-${Math.floor(eSum/1000)}k`:`-${eSum}`;
+          al.classList.add("has-amt");
+        } else if(iSum>0){
+          al.textContent=iSum>=1000?`+${Math.floor(iSum/1000)}k`:`+${iSum}`;
+          al.classList.add("has-income");
+        }
         btn.appendChild(al);
       }
     }
@@ -1058,8 +1080,8 @@ function evaluateCalc(){
   let n1=Number(tokens[0]),op=tokens[1],n2=Number(tokens[2]);
   if(isNaN(n2)) return;
   let res=0;
-  if(op==="+") res=n1+n2; if(op==="-") res=n1-n2; if(op==="×") res=n1*n2; if(op==="÷") res=n2!==0?Math.floor(n1/n2):n1;
-  calcCurrentInput=String(Math.max(0,res));
+  if(op==="+") res=n1+n2; if(op==="-") res=n1-n2; if(op==="×") res=n1*n2; if(op==="÷") res=n2!==0?n1/n2:n1;
+  calcCurrentInput=String(Math.round(Math.max(0,res)));
   document.getElementById("calc-display-line").textContent=calcCurrentInput;
 }
 
@@ -1148,7 +1170,19 @@ function executeDeleteExpense(id){
       const loan=loans.find(l=>l.id===exp.loanId);
       if(loan){
         loan.remaining+=exp.amount;
-        if(loan.repayHistory) loan.repayHistory=loan.repayHistory.filter(r=>r.date!==exp.date||r.amount!==exp.amount);
+        if(loan.repayHistory){
+          if(exp.repayHistoryId){
+            // IDで正確に照合（新しいデータ）
+            loan.repayHistory=loan.repayHistory.filter(r=>r.id!==exp.repayHistoryId);
+          } else {
+            // 旧データ後方互換: 同日・同額の最初の1件だけ削除
+            let removed=false;
+            loan.repayHistory=loan.repayHistory.filter(r=>{
+              if(!removed&&r.date===exp.date&&r.amount===exp.amount){ removed=true; return false; }
+              return true;
+            });
+          }
+        }
         LS.set("loans",loans);
       }
     } else {
@@ -1207,8 +1241,17 @@ function renderAnalysisScreen(){
 // ═══════════════════════════════════════════════
 // ④ 予算
 // ═══════════════════════════════════════════════
+let budgetYear, budgetMonth;
+function initBudgetScreen(){
+  const now=new Date(); budgetYear=now.getFullYear(); budgetMonth=now.getMonth();
+  document.getElementById("budget-prev-month").onclick=e=>{ e.stopPropagation(); budgetMonth--; if(budgetMonth<0){budgetMonth=11;budgetYear--;} renderBudgetScreen(); };
+  document.getElementById("budget-next-month").onclick=e=>{ e.stopPropagation(); budgetMonth++; if(budgetMonth>11){budgetMonth=0;budgetYear++;} renderBudgetScreen(); };
+}
 function renderBudgetScreen(){
-  const mStr=new Date().toISOString().slice(0,7);
+  if(budgetYear===undefined){ const now=new Date(); budgetYear=now.getFullYear(); budgetMonth=now.getMonth(); }
+  const mStr=`${budgetYear}-${String(budgetMonth+1).padStart(2,'0')}`;
+  const label=`${budgetYear}年${String(budgetMonth+1).padStart(2,'0')}月`;
+  document.getElementById("budget-month-title").textContent=label;
   const monthly=expenses.filter(e=>e.date.slice(0,7)===mStr);
   const cont=document.getElementById("list-budget-progress-cards"); cont.innerHTML="";
   categories.forEach(c=>{
