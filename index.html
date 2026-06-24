@@ -1749,183 +1749,355 @@ function renderSettings(){
 }
 
 // ═══════════════════════════════════════════════
-// 【機能拡張】並び替え ＆ 貯金目標額の設定 ＆ 資産画面からローンを完全除外（最新版）
+// 【完全統合版】全機能インジェクション＆エラー修正コード
 // ═══════════════════════════════════════════════
 
-// 1. 設定画面（目標額設定の追加 ＆ 並び替え対応）
-function renderSettings(){
-  // タブ表示設定
-  const vb=document.getElementById("card-tab-visibility-box"); vb.innerHTML='<h2 class="section-title">タブ表示設定</h2>';
-  const tl={input:"入力",history:"履歴",analysis:"分析",budget:"予算",assets:"資産",card:"カード",loans:"ローン",settings:"設定"};
-  Object.entries(tl).forEach(([k,v])=>{
-    const row=document.createElement("div"); row.className="toggle-row";
-    row.innerHTML=`<span class="toggle-label">${v}タブ</span><button class="toggle-btn ${tabVisibility[k]?"on":"off"}">${tabVisibility[k]?"表示":"非表示"}</button>`;
-    row.querySelector("button").onclick=()=>{ tabVisibility[k]=!tabVisibility[k]; LS.set("tabVisibility",tabVisibility); renderNavigation(); renderSettings(); };
-    vb.appendChild(row);
-  });
-
-  // 貯金目標額の設定カード
-  let goalBox = document.getElementById("card-saving-goal-box");
-  if(!goalBox) {
-    goalBox = document.createElement("div");
-    goalBox.id = "card-saving-goal-box";
-    goalBox.className = "card";
-    const scrSettings = document.getElementById("scr-settings");
-    const dangerZone = scrSettings.querySelector(".danger-zone");
-    if(dangerZone) {
-      scrSettings.insertBefore(goalBox, dangerZone);
-    } else {
-      scrSettings.appendChild(goalBox);
+// 📌 1. 共通カスタムスタイルの注入（グリッド・カラーピッカー用）
+if (!document.getElementById('custom-app-style')) {
+  const style = document.createElement('style');
+  style.id = 'custom-app-style';
+  style.textContent = `
+    .btn-row-grid-active {
+      display: grid !important;
+      grid-template-columns: repeat(3, 1fr) !important;
+      gap: 8px !important;
     }
-  }
-  const currentGoal = LS.get("savingGoal", 1000000);
-  goalBox.innerHTML = `
-    <h2 class="section-title">貯金目標額の設定</h2>
-    <div style="margin-top: 12px;">
-      <div style="display: flex; gap: 8px; align-items: center;">
-        <input class="field-input" type="number" id="in-saving-goal" value="${currentGoal}" placeholder="1000000" inputmode="numeric" style="flex: 1; font-size: 16px; padding: 8px 12px; border: 1px solid var(--gray-300); border-radius: 8px;">
-        <span style="font-weight: bold; color: var(--gray-700); font-size: 15px;">円</span>
-      </div>
-    </div>`;
-  goalBox.querySelector("#in-saving-goal").onchange = (e) => {
-    const val = Number(e.target.value) || 0;
-    LS.set("savingGoal", val);
-  };
+    .btn-row-grid-active > button,
+    .btn-row-grid-active > div {
+      white-space: normal !important;
+      word-break: break-all !important;
+      padding: 6px 4px !important;
+      font-size: 12px !important;
+      height: auto !important;
+      min-height: 46px !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+    }
+    .custom-color-picker {
+      width: 32px !important;
+      height: 32px !important;
+      border: 1px solid var(--gray-300) !important;
+      border-radius: 6px !important;
+      padding: 0 !important;
+      background: none !important;
+      cursor: pointer !important;
+    }
+  `;
+  document.head.appendChild(style);
+}
 
-  // 支払方法のレンダリング
-  const ml=document.getElementById("list-settings-methods"); ml.innerHTML="";
-  paymentMethods.forEach((m, idx)=>{
-    const row=document.createElement("div"); row.className="cat-edit-row";
-    row.innerHTML=`
-      <span class="cat-edit-label">${m.label}</span>
-      <div class="cat-edit-controls" style="display:flex; gap:4px; align-items:center;">
-        <button class="sort-up-btn" style="background:var(--gray-100); border:1px solid var(--gray-300); color:var(--gray-700); border-radius:4px; padding:4px 8px; font-size:11px; cursor:pointer;">🔼</button>
-        <button class="sort-down-btn" style="background:var(--gray-100); border:1px solid var(--gray-300); color:var(--gray-700); border-radius:4px; padding:4px 8px; font-size:11px; cursor:pointer;">🔽</button>
-        <button class="del-btn-sm">🗑</button>
-      </div>`;
+// 📌 2. 入力画面のボタン3列化 ＆ カラーボーダー適用
+function fixButtonRows() {
+  const rows = document.querySelectorAll('.btn-row');
+  rows.forEach(row => {
+    if (row.children.length > 2) { 
+      row.classList.add('btn-row-grid-active');
+    }
     
-    if(idx === 0) row.querySelector(".sort-up-btn").style.opacity = "0.3";
-    if(idx === paymentMethods.length - 1) row.querySelector(".sort-down-btn").style.opacity = "0.3";
-
-    row.querySelector(".sort-up-btn").onclick=()=>{
-      if(idx > 0) {
-        [paymentMethods[idx], paymentMethods[idx-1]] = [paymentMethods[idx-1], paymentMethods[idx]];
-        LS.set("paymentMethods", paymentMethods); renderSettings();
+    Array.from(row.children).forEach(child => {
+      const text = child.textContent.trim();
+      const cat = categories.find(c => c.label === text);
+      if (cat && cat.color) {
+        child.style.setProperty('border-left', `5px solid ${cat.color}`, 'important');
       }
-    };
-    row.querySelector(".sort-down-btn").onclick=()=>{
-      if(idx < paymentMethods.length - 1) {
-        [paymentMethods[idx], paymentMethods[idx+1]] = [paymentMethods[idx+1], paymentMethods[idx]];
-        LS.set("paymentMethods", paymentMethods); renderSettings();
-      }
-    };
-    row.querySelector(".del-btn-sm").onclick=()=>{
-      if(paymentMethods.length<=1){ appAlert("エラー","最低1つの支払方法が必要です"); return; }
-      appConfirm("削除の確認",`「${m.label}」を削除しますか？`,()=>{ paymentMethods=paymentMethods.filter(x=>x.id!==m.id); LS.set("paymentMethods",paymentMethods); renderSettings(); });
-    };
-    ml.appendChild(row);
-  });
-
-  // カテゴリーのレンダリング
-  const cl=document.getElementById("list-settings-categories"); cl.innerHTML="";
-  categories.forEach((c, idx)=>{
-    const row=document.createElement("div"); row.className="cat-edit-row";
-    row.innerHTML=`
-      <span class="cat-edit-label">${c.label}</span>
-      <div class="cat-edit-controls" style="display:flex; gap:4px; align-items:center;">
-        <button class="sort-up-btn" style="background:var(--gray-100); border:1px solid var(--gray-300); color:var(--gray-700); border-radius:4px; padding:4px 8px; font-size:11px; cursor:pointer;">🔼</button>
-        <button class="sort-down-btn" style="background:var(--gray-100); border:1px solid var(--gray-300); color:var(--gray-700); border-radius:4px; padding:4px 8px; font-size:11px; cursor:pointer;">🔽</button>
-        <input class="budget-input-sm" type="number" value="${c.budget}" placeholder="予算">
-        <button class="del-btn-sm">🗑</button>
-      </div>`;
-    
-    if(idx === 0) row.querySelector(".sort-up-btn").style.opacity = "0.3";
-    if(idx === categories.length - 1) row.querySelector(".sort-down-btn").style.opacity = "0.3";
-
-    row.querySelector(".sort-up-btn").onclick=()=>{
-      if(idx > 0) {
-        [categories[idx], categories[idx-1]] = [categories[idx-1], categories[idx]];
-        LS.set("categories", categories); renderSettings();
-      }
-    };
-    row.querySelector(".sort-down-btn").onclick=()=>{
-      if(idx < categories.length - 1) {
-        [categories[idx], categories[idx+1]] = [categories[idx+1], categories[idx]];
-        LS.set("categories", categories); renderSettings();
-      }
-    };
-    row.querySelector("input").onchange=e=>{ c.budget=Number(e.target.value)||0; LS.set("categories",categories); };
-    row.querySelector(".del-btn-sm").onclick=()=>{ appConfirm("削除の確認",`「${c.label}」を削除しますか？`,()=>{ categories=categories.filter(x=>x.id!==c.id); LS.set("categories",categories); renderSettings(); }); };
-    cl.appendChild(row);
+    });
   });
 }
 
-// 2. 資産画面（ローンを総資産・総負債の計算から完全に除外）
-function renderAssetsScreen(){
-  // 純粋な資産（口座残高）の合計のみを計算
-  const totalAsset=assetAccounts.reduce((s,a)=>s+a.balance,0);
-  const net=totalAsset; 
-  
-  const nwEl=document.getElementById("txt-asset-networth");
-  nwEl.textContent=`¥${net.toLocaleString("ja-JP")}`;
-  nwEl.className="big-number"+(net<0?" negative":net>0?" positive":"");
-  
-  // ★【文字の書き換え】「総資産 － 総負債」の固定ラベルを「総資産」に自動変更します
-  if (nwEl.nextElementSibling && nwEl.nextElementSibling.textContent.includes("総資産 − 総負債")) {
-    nwEl.nextElementSibling.textContent = "総資産";
-  }
-  
-  document.getElementById("txt-asset-total").textContent=`¥${totalAsset.toLocaleString("ja-JP")}`;
-  document.getElementById("txt-asset-debt").textContent=`¥0`; // ★総負債の表示を常に0円に固定します
-  
-  // 目標達成率の計算
-  const bankTotal=assetAccounts.filter(a=>a.type==="bank"||a.type==="savings").reduce((s,a)=>s+a.balance,0);
-  const savingGoal = Number(LS.get("savingGoal", 1000000));
-  const sp = savingGoal > 0 ? Math.min((bankTotal / savingGoal) * 100, 100) : 0;
-  
-  document.getElementById("txt-asset-goal-pct").textContent=`${sp.toFixed(1)}%`;
-  document.getElementById("bar-asset-goal-fill").style.width=`${sp}%`;
-  
-  // 口座一覧のレンダリング
-  const list=document.getElementById("list-asset-accounts"); list.innerHTML="";
-  assetAccounts.forEach((acc, idx)=>{
-    const ti=ACCOUNT_TYPES.find(t=>t.id===acc.type)||ACCOUNT_TYPES[0];
-    const div=document.createElement("div"); div.className="asset-account-item";
-    div.innerHTML=`
-      <div class="asset-account-left">
-        <span class="asset-account-icon">${acc.icon||ti.icon}</span>
-        <div class="asset-account-info">
-          <div class="asset-account-name">${acc.name}</div>
-          <div class="asset-account-type">${ti.label}</div>
-        </div>
-      </div>
-      <div style="display:flex; align-items:center; gap:6px;">
-        <span class="asset-account-amount ${acc.type==="points"?"points-type":""}">¥${acc.balance.toLocaleString("ja-JP")}</span>
-        <button class="sort-up-btn" style="background:var(--gray-100); border:1px solid var(--gray-300); border-radius:8px; width:32px; height:32px; cursor:pointer; font-size:12px;">🔼</button>
-        <button class="sort-down-btn" style="background:var(--gray-100); border:1px solid var(--gray-300); border-radius:8px; width:32px; height:32px; cursor:pointer; font-size:12px;">🔽</button>
-        <button class="card-edit-btn" style="background:var(--indigo-light); color:var(--indigo-dark); border:none; border-radius:8px; width:32px; height:32px; cursor:pointer; font-size:13px;">✏️</button>
-        <button class="del-btn" style="background:var(--red-light); color:var(--red); border:none; border-radius:8px; width:32px; height:32px; cursor:pointer; font-size:13px;">🗑</button>
-      </div>`;
-    
-    if(idx === 0) div.querySelector(".sort-up-btn").style.opacity = "0.3";
-    if(idx === assetAccounts.length - 1) div.querySelector(".sort-down-btn").style.opacity = "0.3";
+// 画面切り替え時にボタンを補正
+if (window.changeScreen) {
+  const originalChangeScreen = window.changeScreen;
+  window.changeScreen = function() {
+    originalChangeScreen.apply(this, arguments);
+    setTimeout(fixButtonRows, 50);
+  };
+}
+setTimeout(fixButtonRows, 500);
 
-    div.querySelector(".sort-up-btn").onclick=()=>{
-      if(idx > 0) {
-        [assetAccounts[idx], assetAccounts[idx-1]] = [assetAccounts[idx-1], assetAccounts[idx]];
-        LS.set("assetAccounts", assetAccounts); renderAssetsScreen();
-      }
+
+// 📌 3. 履歴画面のタップ修正（編集・削除モーダル）
+function setupHistoryClickEvents() {
+  const scrHistory = document.getElementById('scr-history');
+  if (!scrHistory || typeof historySelectedDate === 'undefined') return;
+  
+  const items = scrHistory.querySelectorAll('.expense-item');
+  const dayExp = expenses.filter(e => e.date === historySelectedDate);
+  
+  items.forEach((item, idx) => {
+    const data = dayExp[idx];
+    if (!data) return;
+    
+    item.style.cursor = 'pointer';
+    item.title = 'クリックして修正・削除';
+    
+    // インラインで安全にスタイル適用
+    item.addEventListener('mouseenter', () => item.style.background = 'var(--gray-50)');
+    item.addEventListener('mouseleave', () => item.style.background = 'var(--white)');
+    
+    item.onclick = (e) => {
+      e.stopPropagation();
+      openExpenseEditModal(data);
     };
-    div.querySelector(".sort-down-btn").onclick=()=>{
-      if(idx < assetAccounts.length - 1) {
-        [assetAccounts[idx], assetAccounts[idx+1]] = [assetAccounts[idx+1], assetAccounts[idx]];
-        LS.set("assetAccounts", assetAccounts); renderAssetsScreen();
-      }
-    };
-    div.querySelector(".card-edit-btn").onclick=()=>openAssetAccountSheet(acc.id);
-    div.querySelector(".del-btn").onclick=()=>{ appConfirm("削除の確認",`「${acc.name}」を削除しますか？`,()=>{ assetAccounts=assetAccounts.filter(x=>x.id!==acc.id); LS.set("assetAccounts",assetAccounts); renderAssetsScreen(); }); };
-    list.appendChild(div);
   });
+}
+
+if (window.renderHistoryScreen) {
+  const originalRenderHistoryScreen = window.renderHistoryScreen;
+  window.renderHistoryScreen = function() {
+    originalRenderHistoryScreen.apply(this, arguments);
+    setTimeout(setupHistoryClickEvents, 50);
+  };
+}
+
+function openExpenseEditModal(data) {
+  const old = document.getElementById('custom-expense-edit-modal');
+  if (old) old.remove();
+  
+  const modal = document.createElement('div');
+  modal.id = 'custom-expense-edit-modal';
+  modal.style = "position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:9999; font-family:var(--font);";
+  
+  let catOptions = '';
+  categories.forEach(c => { catOptions += `<option value="${c.id}" ${data.category === c.id ? 'selected' : ''}>${c.label}</option>`; });
+  let methodOptions = '';
+  paymentMethods.forEach(m => { methodOptions += `<option value="${m.id}" ${data.method === m.id ? 'selected' : ''}>${m.label}</option>`; });
+  
+  modal.innerHTML = `
+    <div style="background:#fff; padding:20px; border-radius:16px; width:90%; max-width:360px; box-shadow:0 4px 20px rgba(0,0,0,0.15);">
+      <h3 style="margin-top:0; margin-bottom:16px; font-size:16px; font-weight:800; color:var(--gray-800);">データの修正</h3>
+      
+      <div style="margin-bottom:12px;">
+        <label style="font-size:12px; font-weight:700; color:var(--gray-500); display:block; margin-bottom:4px;">日付</label>
+        <input type="date" id="edit-exp-date" value="${data.date || ''}" style="width:100%; padding:10px; border:1px solid var(--gray-300); border-radius:8px; box-sizing:border-box; font-size:15px; background:#fff;">
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <label style="font-size:12px; font-weight:700; color:var(--gray-500); display:block; margin-bottom:4px;">金額 (円)</label>
+        <input type="number" id="edit-exp-amount" value="${data.amount}" style="width:100%; padding:10px; border:1px solid var(--gray-300); border-radius:8px; box-sizing:border-box; font-size:15px;">
+      </div>
+      
+      <div style="margin-bottom:12px;">
+        <label style="font-size:12px; font-weight:700; color:var(--gray-500); display:block; margin-bottom:4px;">メモ</label>
+        <input type="text" id="edit-exp-memo" value="${data.memo || ''}" style="width:100%; padding:10px; border:1px solid var(--gray-300); border-radius:8px; box-sizing:border-box; font-size:15px;">
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <label style="font-size:12px; font-weight:700; color:var(--gray-500); display:block; margin-bottom:4px;">カテゴリー</label>
+        <select id="edit-exp-cat" style="width:100%; padding:10px; border:1px solid var(--gray-300); border-radius:8px; box-sizing:border-box; font-size:15px; background:#fff;">
+          ${catOptions}
+        </select>
+      </div>
+
+      <div style="margin-bottom:20px;">
+        <label style="font-size:12px; font-weight:700; color:var(--gray-500); display:block; margin-bottom:4px;">支払い方法</label>
+        <select id="edit-exp-method" style="width:100%; padding:10px; border:1px solid var(--gray-300); border-radius:8px; box-sizing:border-box; font-size:15px; background:#fff;">
+          ${methodOptions}
+        </select>
+      </div>
+      
+      <div style="display:flex; gap:8px;">
+        <button id="btn-edit-delete" style="background:var(--red-light); color:var(--red); border:none; padding:10px 16px; border-radius:8px; cursor:pointer; font-weight:700; font-size:14px;">削除</button>
+        <div style="flex:1;"></div>
+        <button id="btn-edit-cancel" style="background:var(--gray-100); color:var(--gray-600); border:none; padding:10px 16px; border-radius:8px; cursor:pointer; font-weight:700; font-size:14px;">キャンセル</button>
+        <button id="btn-edit-save" style="background:var(--indigo); color:#fff; border:none; padding:10px 16px; border-radius:8px; cursor:pointer; font-weight:700; font-size:14px;">保存</button>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  modal.querySelector('#btn-edit-cancel').onclick = () => modal.remove();
+  
+  modal.querySelector('#btn-edit-save').onclick = () => {
+    const nextDate = modal.querySelector('#edit-exp-date').value;
+    const amt = Number(modal.querySelector('#edit-exp-amount').value) || 0;
+    const memo = modal.querySelector('#edit-exp-memo').value;
+    const cat = modal.querySelector('#edit-exp-cat').value;
+    const method = modal.querySelector('#edit-exp-method').value;
+    
+    if (!nextDate) { alert("日付を入力してください"); return; }
+    
+    const idxInAll = expenses.findIndex(e => e === data);
+    if (idxInAll !== -1) {
+      expenses[idxInAll].date = nextDate;
+      expenses[idxInAll].amount = amt;
+      expenses[idxInAll].memo = memo;
+      expenses[idxInAll].category = cat;
+      expenses[idxInAll].method = method;
+      
+      LS.set("expenses", expenses);
+      modal.remove();
+      
+      if (typeof historySelectedDate !== 'undefined') { window.historySelectedDate = nextDate; }
+      if (typeof renderHistoryScreen === 'function') renderHistoryScreen();
+      if (typeof renderAnalysisScreen === 'function') renderAnalysisScreen(); 
+      if (typeof renderAssetsScreen === 'function') renderAssetsScreen();
+    }
+  };
+  
+  modal.querySelector('#btn-edit-delete').onclick = () => {
+    appConfirm("削除の確認", "この履歴を完全に削除しますか？", () => {
+      const idxInAll = expenses.findIndex(e => e === data);
+      if (idxInAll !== -1) {
+        expenses.splice(idxInAll, 1);
+        LS.set("expenses", expenses);
+        modal.remove();
+        if (typeof renderHistoryScreen === 'function') renderHistoryScreen();
+        if (typeof renderAnalysisScreen === 'function') renderAnalysisScreen();
+        if (typeof renderAssetsScreen === 'function') renderAssetsScreen();
+      }
+    });
+  };
+}
+
+
+// 📌 4. 設定画面の拡張（干渉しないように既存メソッドをラップして追記）
+if (window.renderSettings) {
+  const originalRenderSettings = window.renderSettings;
+  window.renderSettings = function() {
+    // ① 元の設定画面を一度完全に描画させる
+    originalRenderSettings.apply(this, arguments);
+    
+    // ② 貯金目標額入力ボックスの生成・追加
+    let goalBox = document.getElementById("card-saving-goal-box");
+    if(!goalBox) {
+      goalBox = document.createElement("div");
+      goalBox.id = "card-saving-goal-box";
+      goalBox.className = "card";
+      const scrSettings = document.getElementById("scr-settings");
+      const dangerZone = scrSettings ? scrSettings.querySelector(".danger-zone") : null;
+      if(dangerZone && scrSettings) { scrSettings.insertBefore(goalBox, dangerZone); } else if(scrSettings) { scrSettings.appendChild(goalBox); }
+    }
+    const currentGoal = LS.get("savingGoal", 1000000);
+    if (goalBox) {
+      goalBox.innerHTML = `
+        <h2 class="section-title">貯金目標額の設定</h2>
+        <div style="margin-top: 12px;">
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <input class="field-input" type="number" id="in-saving-goal" value="${currentGoal}" placeholder="1000000" inputmode="numeric" style="flex:1; font-size:16px; padding:8px 12px; border:1px solid var(--gray-300); border-radius:8px;">
+            <span style="font-weight:bold; color:var(--gray-700); font-size:15px;">円</span>
+          </div>
+        </div>`;
+      goalBox.querySelector("#in-saving-goal").onchange = (e) => {
+        const val = Number(e.target.value) || 0;
+        LS.set("savingGoal", val);
+        if (typeof renderAssetsScreen === 'function') renderAssetsScreen();
+      };
+    }
+
+    // ③ カテゴリー編集行へのカラーピッカーの差し込み
+    const catRows = document.querySelectorAll("#list-settings-categories .cat-edit-row");
+    catRows.forEach((row, idx) => {
+      const c = categories[idx];
+      if (!c) return;
+      if (!c.color) c.color = "#6366f1"; // デフォルト色
+
+      // コントロール枠（ボタン群の並び）を見つける
+      const controls = row.querySelector(".cat-edit-controls");
+      if (controls && !controls.querySelector(".custom-color-picker")) {
+        const picker = document.createElement("input");
+        picker.type = "color";
+        picker.className = "custom-color-picker";
+        picker.value = c.color;
+        
+        // 操作ボタンの一番左側にピッカーを挿入
+        controls.insertBefore(picker, controls.firstChild);
+
+        // 色変更時のイベント
+        picker.onchange = e => {
+          c.color = e.target.value;
+          LS.set("categories", categories);
+          if (typeof renderAnalysisScreen === 'function') renderAnalysisScreen();
+          if (typeof renderHistoryScreen === 'function') renderHistoryScreen();
+          fixButtonRows();
+        };
+      }
+    });
+  };
+}
+
+
+// 📌 5. 資産画面のレンダリング
+if (window.renderAssetsScreen) {
+  const originalRenderAssetsScreen = window.renderAssetsScreen;
+  window.renderAssetsScreen = function() {
+    originalRenderAssetsScreen.apply(this, arguments);
+    
+    // 総負債を考慮しない「総資産」のカスタム計算
+    const totalAsset = assetAccounts.reduce((s, a) => s + a.balance, 0);
+    const nwEl = document.getElementById("txt-asset-networth");
+    if (nwEl) {
+      nwEl.textContent = `¥${totalAsset.toLocaleString("ja-JP")}`;
+      nwEl.className = "big-number" + (totalAsset < 0 ? " negative" : totalAsset > 0 ? " positive" : "");
+    }
+    
+    const bigLabel = document.querySelector('#scr-assets .big-label');
+    if (bigLabel) { bigLabel.textContent = "総資産"; }
+    
+    const debtEl = document.getElementById("txt-asset-debt");
+    if (debtEl) debtEl.textContent = `¥0`;
+    
+    // 貯金目標進捗バーの計算
+    const bankTotal = assetAccounts.filter(a => a.type === "bank" || a.type === "savings").reduce((s, a) => s + a.balance, 0);
+    const savingGoal = Number(LS.get("savingGoal", 1000000));
+    const sp = savingGoal > 0 ? Math.min((bankTotal / savingGoal) * 100, 100) : 0;
+    
+    const pctEl = document.getElementById("txt-asset-goal-pct");
+    if (pctEl) pctEl.textContent = `${sp.toFixed(1)}%`;
+    
+    const barEl = document.getElementById("bar-asset-goal-fill");
+    if (barEl) barEl.style.width = `${sp}%`;
+  };
+}
+
+
+// 📌 6. 分析画面へのカラー連動システム
+if (window.renderAnalysisScreen) {
+  const originalRenderAnalysisScreen = window.renderAnalysisScreen;
+  window.renderAnalysisScreen = function() {
+    originalRenderAnalysisScreen.apply(this, arguments);
+    
+    const scrAnalysis = document.getElementById('scr-analysis');
+    if (!scrAnalysis) return;
+    
+    // ① Chart.jsグラフの自動配色
+    const chartNames = ['analysisChart', 'myChart', 'cateChart', 'pieChart', 'chart'];
+    chartNames.forEach(name => {
+      if (window[name] && window[name].data && window[name].data.datasets) {
+        const chart = window[name];
+        chart.data.datasets.forEach(dataset => {
+          if (dataset.backgroundColor && Array.isArray(dataset.backgroundColor)) {
+            const labels = chart.data.labels;
+            if (labels) {
+              dataset.backgroundColor = labels.map(label => {
+                const cat = categories.find(c => c.label === label);
+                return cat && cat.color ? cat.color : '#888888';
+              });
+            }
+          }
+        });
+        chart.update();
+      }
+    });
+
+    // ② 分析リストの進捗バー・アイコンの自動配色
+    categories.forEach(cat => {
+      if (!cat.color) return;
+      const elements = scrAnalysis.querySelectorAll('*');
+      elements.forEach(el => {
+        if (el.children.length === 0 && el.textContent.trim() === cat.label) {
+          const parent = el.closest('div'); 
+          if (parent) {
+            const bar = parent.querySelector('.progress-fill, .bar, .chart-bar, [style*="width"]');
+            if (bar) bar.style.setProperty('background-color', cat.color, 'important');
+            
+            const icon = parent.querySelector('.category-icon, .icon, .badge');
+            if (icon) icon.style.setProperty('background-color', cat.color, 'important');
+          }
+        }
+      });
+    });
+  };
 }
 
 </script>
