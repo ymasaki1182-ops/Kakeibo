@@ -21,7 +21,8 @@
       --header-h: 64px; --nav-h: 76px; --max-w: 480px;
       --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
-    html,body { height:100%; font-family:var(--font); background:var(--gray-100); color:var(--gray-800); -webkit-font-smoothing:antialiased; overscroll-behavior:none; }
+    html,body { height:100%; font-family:var(--font); background:var(--gray-100); color:var(--gray-800); -webkit-font-smoothing:antialiased; overscroll-behavior:none; touch-action:manipulation; }
+    button, a, [role="button"], .field-input, .cat-btn, .method-btn, .nav-item, .seg-btn, .save-btn, .cal-day, .cal-nav-btn, .card-nav-btn { touch-action:manipulation; }
     .app-root { display:flex; flex-direction:column; min-height:100dvh; max-width:var(--max-w); margin:0 auto; position:relative; background:var(--white); box-shadow:0 0 50px rgba(0,0,0,0.05); }
 
     /* Header */
@@ -323,6 +324,21 @@
     <main class="app-main">
       <!-- 入力タブ -->
       <section id="scr-input" class="screen">
+        <!-- ★ 当月集計サマリー -->
+        <div class="summary-group-box" id="input-monthly-summary" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+          <div class="card summary-card" style="padding:14px 12px;">
+            <div class="summary-label">今日の収支</div>
+            <div class="summary-amount" id="txt-input-today-net">¥0</div>
+          </div>
+          <div class="card summary-card" style="padding:14px 12px;">
+            <div class="summary-label">今月の支出</div>
+            <div class="summary-amount minus" id="txt-input-month-expense">¥0</div>
+          </div>
+          <div class="card summary-card" style="padding:14px 12px;">
+            <div class="summary-label">今月の収支</div>
+            <div class="summary-amount" id="txt-input-month-net">¥0</div>
+          </div>
+        </div>
         <div class="card">
           <div class="segment-tab">
             <button class="seg-btn active expense" id="btn-seg-expense">💸 支出</button>
@@ -409,7 +425,20 @@
         <div class="card" id="card-analysis-chart-box">
           <h3 class="sub-title">カテゴリー別支出内訳</h3>
           <div class="donut-wrap"><div class="donut" id="chart-analysis-donut"></div></div>
+          <!-- ★ Fix9: カテゴリ名ラベル -->
+          <div id="donut-labels-container" style="display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 4px;justify-content:center;"></div>
           <div class="rank-list" id="list-analysis-ranks"></div>
+        </div>
+        <!-- ★ Fix10: ドリルダウンパネル -->
+        <div class="card" id="card-drilldown" style="display:none;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+            <button id="btn-drilldown-back" style="background:var(--gray-100);border:none;border-radius:8px;padding:6px 12px;font-size:13px;font-weight:700;cursor:pointer;color:var(--gray-700);">← 戻る</button>
+            <h3 class="sub-title" id="drilldown-title" style="margin:0;flex:1;"></h3>
+          </div>
+          <h4 style="font-size:12px;font-weight:700;color:var(--gray-400);margin-bottom:8px;letter-spacing:0.5px;">📊 月別推移（過去6ヶ月）</h4>
+          <div id="drilldown-bar-chart" style="display:flex;align-items:flex-end;gap:6px;height:80px;margin-bottom:16px;"></div>
+          <h4 style="font-size:12px;font-weight:700;color:var(--gray-400);margin-bottom:8px;letter-spacing:0.5px;">📋 今月の明細</h4>
+          <div id="drilldown-detail-list"></div>
         </div>
       </section>
 
@@ -665,6 +694,21 @@ const LOAN_TYPES = [
   {id:"personal",  label:"フリーローン",color:"#8B5CF6"},
   {id:"other",     label:"その他",     color:"#6B7280"}
 ];
+
+// ★ Fix4: showSnackbar（スナックバー通知）
+function showSnackbar(msg,duration=2800){
+  let el=document.getElementById("app-snackbar-toast");
+  if(!el){
+    el=document.createElement("div");
+    el.id="app-snackbar-toast";
+    el.style.cssText="position:fixed;bottom:calc(var(--nav-h,76px)+14px);left:50%;transform:translateX(-50%) translateY(16px);background:var(--gray-800,#1F2937);color:#fff;padding:11px 20px;border-radius:14px;font-size:13px;font-weight:700;opacity:0;transition:opacity 0.22s,transform 0.22s;z-index:9999;white-space:nowrap;max-width:88%;text-align:center;pointer-events:none;";
+    document.body.appendChild(el);
+  }
+  el.textContent=msg;
+  el.style.opacity="1"; el.style.transform="translateX(-50%) translateY(0)";
+  clearTimeout(el._t);
+  el._t=setTimeout(()=>{ el.style.opacity="0"; el.style.transform="translateX(-50%) translateY(16px)"; },duration);
+}
 
 // ═══════════════════════════════════════════════
 // LocalStorage
@@ -999,9 +1043,41 @@ function renderInputScreen(){
         <span>${l.name}</span>
       </div>
       <div class="repay-remaining">残高: ¥${l.remaining.toLocaleString("ja-JP")}</div>`;
-      btn.onclick=()=>{ inputSelectedLoanId=l.id; renderInputScreen(); };
+      btn.onclick=()=>{
+        inputSelectedLoanId=l.id;
+        // ★ 月々の返済額を金額欄に自動反映
+        if(l.monthlyPayment>0){
+          inputCalculatedAmount=l.monthlyPayment;
+          document.getElementById("btn-trigger-calc").textContent=l.monthlyPayment.toLocaleString("ja-JP");
+        }
+        renderInputScreen();
+      };
       sel.appendChild(btn);
     });
+  }
+
+  // ★ 当月集計カードを更新
+  const todayStr=new Date().toISOString().slice(0,10);
+  const mStr2=todayStr.slice(0,7);
+  const todayExp=expenses.filter(e=>e.date===todayStr);
+  const todayE=todayExp.filter(e=>e.type!=="income"&&e.type!=="repay").reduce((s,e)=>s+e.amount,0);
+  const todayI=todayExp.filter(e=>e.type==="income").reduce((s,e)=>s+e.amount,0);
+  const todayNet=todayI-todayE;
+  const todayEl=document.getElementById("txt-input-today-net");
+  if(todayEl){
+    todayEl.textContent=`${todayNet>=0?"+":""}¥${todayNet.toLocaleString("ja-JP")}`;
+    todayEl.className=`summary-amount ${todayNet>0?"plus":todayNet<0?"minus":""}`;
+  }
+  const monthlyAll=expenses.filter(e=>e.date.slice(0,7)===mStr2);
+  const monthE=monthlyAll.filter(e=>e.type!=="income"&&e.type!=="repay").reduce((s,e)=>s+e.amount,0);
+  const monthI=monthlyAll.filter(e=>e.type==="income").reduce((s,e)=>s+e.amount,0);
+  const monthNet=monthI-monthE;
+  const meEl=document.getElementById("txt-input-month-expense");
+  if(meEl) meEl.textContent=`¥${monthE.toLocaleString("ja-JP")}`;
+  const mnEl=document.getElementById("txt-input-month-net");
+  if(mnEl){
+    mnEl.textContent=`${monthNet>=0?"+":""}¥${monthNet.toLocaleString("ja-JP")}`;
+    mnEl.className=`summary-amount ${monthNet>=0?"plus":"minus"}`;
   }
 }
 
@@ -1094,7 +1170,15 @@ function initHistoryScreenContext(){
   document.getElementById("cal-hist-next").onclick=e=>{ e.stopPropagation(); hMonth++; if(hMonth>11){hMonth=0;hYear++;} renderHistoryScreen(); };
 }
 function renderHistoryScreen(){
-  buildCustomCalendar(hYear,hMonth,"cal-hist-month-title","cal-hist-days-container",(d)=>{ historySelectedDate=d; renderHistoryScreen(); }, historySelectedDate, true);
+  buildCustomCalendar(hYear,hMonth,"cal-hist-month-title","cal-hist-days-container",(d)=>{
+    historySelectedDate=d;
+    renderHistoryScreen();
+    // Fix 8: 選択日付のヘッダーへ自動スクロール
+    setTimeout(()=>{
+      const target=document.querySelector(`[data-date-header="${d}"]`);
+      if(target) target.scrollIntoView({behavior:"smooth",block:"start"});
+    },80);
+  }, historySelectedDate, true);
   const dayExp=expenses.filter(e=>e.date===historySelectedDate);
   document.getElementById("lbl-history-view-title").textContent=`📊 ${historySelectedDate.replace(/-/g,"/")} の合計`;
   const dayE=dayExp.filter(e=>e.type!=="income"&&e.type!=="repay").reduce((s,e)=>s+e.amount,0);
@@ -1127,6 +1211,7 @@ function renderHistoryScreen(){
     if(sExp>0) rm+=`出 -¥${sExp.toLocaleString()} `;
     if(sRep>0) rm+=`返 -¥${sRep.toLocaleString()}`;
     const sh=document.createElement("div"); sh.className="timeline-section-title";
+    sh.setAttribute("data-date-header",dk);
     sh.innerHTML=`<span>🗓️ ${dk.replace(/-/g,"/")}</span><span style="font-size:11px;font-weight:600;color:var(--gray-400);">${rm}</span>`;
     timeline.appendChild(sh);
     txList.forEach(e=>{
@@ -1157,7 +1242,10 @@ function renderHistoryScreen(){
           <span class="expense-amount ${amtClass}">${prefix}¥${e.amount.toLocaleString("ja-JP")}</span>
           <button class="del-btn" data-id="${e.id}">🗑</button>
         </div>`;
-      div.querySelector(".del-btn").onclick=()=>executeDeleteExpense(e.id);
+      // Fix 7: 削除ボタンはバブリングを止める
+      div.querySelector(".del-btn").onclick=ev=>{ ev.stopPropagation(); executeDeleteExpense(e.id); };
+      // Fix 6: div自体のタップは明細IDで編集モーダルを開く（将来の編集機能用フック）
+      div.dataset.expenseId=e.id;
       timeline.appendChild(div);
     });
   });
@@ -1224,7 +1312,7 @@ function renderAnalysisScreen(){
   document.getElementById("txt-analysis-sub-expense").textContent=`¥${totalE.toLocaleString("ja-JP")}`;
   const rankList=document.getElementById("list-analysis-ranks");
   const donut=document.getElementById("chart-analysis-donut");
-  if(totalE===0){ document.getElementById("card-analysis-chart-box").style.display="none"; return; }
+  if(totalE===0){ document.getElementById("card-analysis-chart-box").style.display="none"; document.getElementById("card-drilldown").style.display="none"; return; }
   document.getElementById("card-analysis-chart-box").style.display="block";
   const byCat=categories.map(c=>({...c,sum:monthly.filter(e=>e.catId===c.id&&e.type!=="income"&&e.type!=="repay").reduce((s,e)=>s+e.amount,0)})).filter(c=>c.sum>0).sort((a,b)=>b.sum-a.sum);
   rankList.innerHTML=""; let acc=0; const conic=[];
@@ -1233,9 +1321,76 @@ function renderAnalysisScreen(){
     conic.push(`${c.color} ${acc}% ${acc+pct}%`); acc+=pct;
     const row=document.createElement("div"); row.className="rank-item";
     row.innerHTML=`<div class="rank-header"><span class="rank-dot" style="background:${c.color}"></span><span class="rank-label">${c.label}</span><span class="rank-amount">¥${c.sum.toLocaleString("ja-JP")}</span></div><div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${pct.toFixed(1)}%;background:${c.color}"></div></div><div style="font-size:11px;color:var(--gray-400);text-align:right;margin-top:3px;font-weight:600;">${pct.toFixed(1)}%</div>`;
+    // ★ Fix10: ランク行タップでドリルダウン
+    row.style.cursor="pointer";
+    row.onclick=()=>openDrilldown(c.id, mStr);
     rankList.appendChild(row);
   });
   donut.style.background=`conic-gradient(${conic.join(",")})`;
+
+  // ★ Fix9: カテゴリ名ラベルをドーナツの下に表示
+  const labelsBox=document.getElementById("donut-labels-container");
+  if(labelsBox){
+    labelsBox.innerHTML="";
+    byCat.forEach(c=>{
+      const pct=((c.sum/totalE)*100).toFixed(1);
+      const tag=document.createElement("span");
+      tag.style.cssText=`display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:3px 8px;border-radius:20px;background:${c.color}20;color:${c.color};border:1px solid ${c.color}40;cursor:pointer;`;
+      tag.innerHTML=`<span style="width:8px;height:8px;border-radius:50%;background:${c.color};flex-shrink:0;"></span>${c.label} ${pct}%`;
+      tag.onclick=()=>openDrilldown(c.id, mStr);
+      labelsBox.appendChild(tag);
+    });
+  }
+}
+
+// ★ Fix10: ドリルダウン表示関数
+function openDrilldown(catId, mStr){
+  const cat=categories.find(c=>c.id===catId);
+  if(!cat) return;
+  document.getElementById("card-drilldown").style.display="block";
+  document.getElementById("drilldown-title").textContent=`${cat.label} の詳細`;
+  document.getElementById("card-drilldown").scrollIntoView({behavior:"smooth",block:"start"});
+
+  // 過去6ヶ月の棒グラフ
+  const barChart=document.getElementById("drilldown-bar-chart");
+  barChart.innerHTML="";
+  const months=[];
+  const base=new Date(mStr+"-01");
+  for(let i=5;i>=0;i--){
+    const d=new Date(base.getFullYear(), base.getMonth()-i, 1);
+    months.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
+  }
+  const sums=months.map(m=>expenses.filter(e=>e.date.slice(0,7)===m&&e.catId===catId&&e.type!=="income"&&e.type!=="repay").reduce((s,e)=>s+e.amount,0));
+  const maxSum=Math.max(...sums,1);
+  months.forEach((m,i)=>{
+    const col=document.createElement("div");
+    col.style.cssText="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;";
+    const pct=Math.max((sums[i]/maxSum)*100,2);
+    const isCurrentMonth=(m===mStr);
+    col.innerHTML=`<div style="font-size:10px;font-weight:700;color:${cat.color};">${sums[i]>0?`¥${Math.floor(sums[i]/1000)}k`:""}</div><div style="width:100%;height:${pct}%;min-height:4px;background:${isCurrentMonth?cat.color:cat.color+"60"};border-radius:4px 4px 0 0;"></div><div style="font-size:9px;color:var(--gray-400);font-weight:600;">${m.slice(5)}月</div>`;
+    barChart.appendChild(col);
+  });
+
+  // 今月の明細
+  const detailList=document.getElementById("drilldown-detail-list");
+  detailList.innerHTML="";
+  const monthlyItems=expenses.filter(e=>e.date.slice(0,7)===mStr&&e.catId===catId&&e.type!=="income"&&e.type!=="repay").sort((a,b)=>b.date.localeCompare(a.date));
+  if(monthlyItems.length===0){
+    detailList.innerHTML='<div style="font-size:13px;color:var(--gray-400);text-align:center;padding:16px;font-weight:600;">この月の明細はありません</div>';
+  } else {
+    monthlyItems.forEach(e=>{
+      const mObj=paymentMethods.find(m=>m.id===e.method)||{label:"その他"};
+      const row=document.createElement("div");
+      row.style.cssText="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--gray-100);";
+      row.innerHTML=`<div><div style="font-size:13px;font-weight:600;color:var(--gray-800);">${e.memo||"（メモなし）"}</div><div style="font-size:11px;color:var(--gray-400);margin-top:2px;">${e.date.replace(/-/g,"/")} ・ ${mObj.label}</div></div><div style="font-size:15px;font-weight:700;color:var(--red);">¥${e.amount.toLocaleString("ja-JP")}</div>`;
+      detailList.appendChild(row);
+    });
+  }
+
+  document.getElementById("btn-drilldown-back").onclick=()=>{
+    document.getElementById("card-drilldown").style.display="none";
+    document.getElementById("card-analysis-chart-box").scrollIntoView({behavior:"smooth",block:"start"});
+  };
 }
 
 // ═══════════════════════════════════════════════
