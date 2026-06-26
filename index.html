@@ -72,7 +72,7 @@
     .cal-day:active { transform:scale(0.9); }
     .cal-day.empty { cursor:default; pointer-events:none; }
     .cal-day.selected { background:var(--indigo)!important; color:var(--white)!important; font-weight:700; box-shadow:0 4px 10px rgba(99,102,241,0.3); }
-    .cal-day-amt { font-size:8px; font-weight:700; color:var(--gray-400); max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:1px; }
+    .cal-day-amt { font-size:7px; font-weight:700; color:var(--gray-400); max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:1px; }
     .cal-day.selected .cal-day-amt { color:rgba(255,255,255,0.9); }
     .cal-day-amt.has-amt { color:var(--red); }
     .cal-day-amt.has-income { color:var(--emerald-dark); }
@@ -440,6 +440,10 @@
               <div class="summary-amount" id="txt-history-month-diff">¥0</div>
             </div>
           </div>
+        </div>
+        <div class="card summary-card" style="justify-content:space-between;">
+          <div class="summary-label">🔁 今月の固定費合計</div>
+          <div class="summary-amount" id="txt-history-fixed-total" style="color:var(--amber);">¥0</div>
         </div>
         <div id="list-history-timeline-container" style="display:flex; flex-direction:column; gap:4px;"></div>
       </section>
@@ -1228,10 +1232,10 @@ function buildCustomCalendar(year, month, titleId, gridId, onSelect, currentSele
         const iSum=dayTx.filter(e=>e.type==="income").reduce((s,e)=>s+e.amount,0);
         const al=document.createElement("span"); al.className="cal-day-amt";
         if(eSum>0){
-          al.textContent=eSum>=1000?`-${Math.floor(eSum/1000)}k`:`-${eSum}`;
+          al.textContent=`-${eSum.toLocaleString("ja-JP")}`;
           al.classList.add("has-amt");
         } else if(iSum>0){
-          al.textContent=iSum>=1000?`+${Math.floor(iSum/1000)}k`:`+${iSum}`;
+          al.textContent=`+${iSum.toLocaleString("ja-JP")}`;
           al.classList.add("has-income");
         }
         btn.appendChild(al);
@@ -1295,7 +1299,16 @@ function initHistoryScreenContext(){
   document.getElementById("cal-hist-next").onclick=e=>{ e.stopPropagation(); hMonth++; if(hMonth>11){hMonth=0;hYear++;} renderHistoryScreen(); };
 }
 function renderHistoryScreen(){
-  buildCustomCalendar(hYear,hMonth,"cal-hist-month-title","cal-hist-days-container",(d)=>{ historySelectedDate=d; renderHistoryScreen(); }, historySelectedDate, true);
+  buildCustomCalendar(hYear,hMonth,"cal-hist-month-title","cal-hist-days-container",(d)=>{
+    historySelectedDate=d;
+    renderHistoryScreen();
+    // 選択日のセクションへ自動スクロール
+    setTimeout(()=>{
+      const target = document.getElementById(`timeline-date-${d}`);
+      if(target) target.scrollIntoView({ behavior:"smooth", block:"start" });
+    }, 80);
+  }, historySelectedDate, true);
+
   const dayExp=expenses.filter(e=>e.date===historySelectedDate);
   document.getElementById("lbl-history-view-title").textContent=`📊 ${historySelectedDate.replace(/-/g,"/")} の合計`;
   const dayE=dayExp.filter(e=>e.type!=="income"&&e.type!=="repay").reduce((s,e)=>s+e.amount,0);
@@ -1304,6 +1317,7 @@ function renderHistoryScreen(){
   const tdEl=document.getElementById("txt-history-daily-total");
   tdEl.textContent=`${netDay>=0?"+":""}¥${netDay.toLocaleString("ja-JP")}`;
   tdEl.className=`summary-amount ${netDay>0?"plus":netDay<0?"minus":""}`;
+
   const mStr=`${hYear}-${String(hMonth+1).padStart(2,'0')}`;
   const mTx=expenses.filter(e=>e.date.slice(0,7)===mStr);
   const mE=mTx.filter(e=>e.type!=="income"&&e.type!=="repay").reduce((s,e)=>s+e.amount,0);
@@ -1313,9 +1327,17 @@ function renderHistoryScreen(){
   mdEl.textContent=`${netM>=0?"+":""}¥${netM.toLocaleString("ja-JP")}`;
   mdEl.className=`summary-amount ${netM>=0?"plus":"minus"}`;
 
+  // 固定費合計（isFixed===true の支出のみ正確に集計）
+  const fixedSum = mTx
+    .filter(e=>e.isFixed===true && e.type!=="income" && e.type!=="repay")
+    .reduce((s,e)=>s+e.amount, 0);
+  document.getElementById("txt-history-fixed-total").textContent =
+    `¥${fixedSum.toLocaleString("ja-JP")}`;
+
   const timeline=document.getElementById("list-history-timeline-container");
   timeline.innerHTML="";
   if(mTx.length===0){ timeline.innerHTML='<div class="card empty-state">この月の記録はありません</div>'; return; }
+
   const dg={};
   mTx.forEach(tx=>{ if(!dg[tx.date]) dg[tx.date]=[]; dg[tx.date].push(tx); });
   Object.keys(dg).sort().reverse().forEach(dk=>{
@@ -1327,9 +1349,14 @@ function renderHistoryScreen(){
     if(sInc>0) rm+=`入 +¥${sInc.toLocaleString()} `;
     if(sExp>0) rm+=`出 -¥${sExp.toLocaleString()} `;
     if(sRep>0) rm+=`返 -¥${sRep.toLocaleString()}`;
-    const sh=document.createElement("div"); sh.className="timeline-section-title";
+
+    // ★ 自動スクロール用ID付きセクションタイトル
+    const sh=document.createElement("div");
+    sh.className="timeline-section-title";
+    sh.id=`timeline-date-${dk}`;
     sh.innerHTML=`<span>🗓️ ${dk.replace(/-/g,"/")}</span><span style="font-size:11px;font-weight:600;color:var(--gray-400);">${rm}</span>`;
     timeline.appendChild(sh);
+
     txList.forEach(e=>{
       const isInc=e.type==="income"; const isRep=e.type==="repay";
       let cat, amtClass, prefix;
@@ -1428,16 +1455,47 @@ function renderAnalysisScreen(){
   const donut=document.getElementById("chart-analysis-donut");
   if(totalE===0){ document.getElementById("card-analysis-chart-box").style.display="none"; return; }
   document.getElementById("card-analysis-chart-box").style.display="block";
-  const byCat=categories.map(c=>({...c,sum:monthly.filter(e=>e.catId===c.id&&e.type!=="income"&&e.type!=="repay").reduce((s,e)=>s+e.amount,0)})).filter(c=>c.sum>0).sort((a,b)=>b.sum-a.sum);
+
+  // 全カテゴリーを集計（0円含む）、金額降順でソート
+  const byCat = categories
+    .map(c=>({
+      ...c,
+      sum: monthly.filter(e=>e.catId===c.id&&e.type!=="income"&&e.type!=="repay").reduce((s,e)=>s+e.amount,0)
+    }))
+    .sort((a,b)=>b.sum-a.sum);
+
   rankList.innerHTML=""; let acc=0; const conic=[];
-  byCat.forEach(c=>{
+
+  // 円グラフは支出ありのカテゴリーのみ（0円はグラフに映らないため）
+  const byCatWithSum = byCat.filter(c=>c.sum>0);
+  byCatWithSum.forEach(c=>{
     const pct=(c.sum/totalE)*100;
     conic.push(`${c.color} ${acc}% ${acc+pct}%`); acc+=pct;
+  });
+  donut.style.background = conic.length
+    ? `conic-gradient(${conic.join(",")})`
+    : `var(--gray-100)`;
+
+  // リストは全カテゴリー表示
+  byCat.forEach(c=>{
+    const pct = totalE>0 ? (c.sum/totalE)*100 : 0;
     const row=document.createElement("div"); row.className="rank-item";
-    row.innerHTML=`<div class="rank-header"><span class="rank-dot" style="background:${c.color}"></span><span class="rank-label">${c.label}</span><span class="rank-amount">¥${c.sum.toLocaleString("ja-JP")}</span></div><div class="progress-bar-bg"><div class="progress-bar-fill" style="width:${pct.toFixed(1)}%;background:${c.color}"></div></div><div style="font-size:11px;color:var(--gray-400);text-align:right;margin-top:3px;font-weight:600;">${pct.toFixed(1)}%</div>`;
+    row.innerHTML=`
+      <div class="rank-header">
+        <span class="rank-dot" style="background:${c.color}"></span>
+        <span class="rank-label">${c.label}</span>
+        <span class="rank-amount" style="color:${c.sum>0?'var(--gray-900)':'var(--gray-300)'};">
+          ${c.sum>0 ? `¥${c.sum.toLocaleString("ja-JP")}` : '¥0'}
+        </span>
+      </div>
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" style="width:${pct.toFixed(1)}%;background:${c.color}"></div>
+      </div>
+      <div style="font-size:11px;color:${c.sum>0?'var(--gray-400)':'var(--gray-300)'};text-align:right;margin-top:3px;font-weight:600;">
+        ${c.sum>0 ? pct.toFixed(1)+'%' : '0%'}
+      </div>`;
     rankList.appendChild(row);
   });
-  donut.style.background=`conic-gradient(${conic.join(",")})`;
 }
 
 // ═══════════════════════════════════════════════
